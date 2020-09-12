@@ -4,6 +4,19 @@ library(readr)
 library(data.table)
 library(tidyr)
 
+con <- dbConnect(odbc::odbc(),
+                 Driver="SQL Server",
+                 Server= "RAS-SHIVUK-SHAY\\SQLEXPRESS",
+                 database="COLLEGE",
+                 Trusted_Connection="True")
+
+df_students <- dbGetQuery(con,'Select * from Students')
+df_teachers <- dbGetQuery(con,'Select * from teachers')
+df_departments <- dbGetQuery(con,'Select * from departments') 
+df_courses <- dbGetQuery(con,'Select * from courses') 
+df_classrooms <- dbGetQuery(con,'Select * from classrooms')
+
+
 # Q1. Count the number of students on each department
 #colnames(df_departments)
 names(df_departments)[names(df_departments) == "DepartmentId"] <- "DepartmentID"
@@ -13,7 +26,7 @@ df_merged <- merge(df_classrooms, df_courses, by="CourseId")
 df_merged <- merge(df_students, df_merged, by="StudentId")
 df_merged <- merge(df_departments, df_merged, by="DepartmentID")
 
-ST_Dep <- setDT(df_Dep_stu)[, .(Num_of_Stu = uniqueN(paste(DepartmentID, StudentId))) , by = DepartmentName]
+ST_Dep <- setDT(df_merged)[, .(Num_of_Stu = uniqueN(paste(DepartmentID, StudentId))) , by = DepartmentName]
 ST_Dep
 
 ## Q2. How many students have each course of the English department and the total number of students in the department?
@@ -56,12 +69,17 @@ Sci_cla_T <-  Stu_by_Sci %>%
 Sci_cla_T
 
 ##Q4. A feminist student claims that there are more male than female in the College. Justify if the argument is correct
+#Q4 A feminist student claims that there are more male than female in the College. Justify if the argument is correct
 
-Fem_VS_Mal <- df_merged %>% 
-              filter(!is.na(StudentId)) %>%
-              group_by (Gender) %>% 
-              summarise(Stu_Num = n_distinct(StudentId))
+
+
+Fem_VS_Mal <- df_students %>%
+              group_by(Gender) %>%
+              summarise(num_students = n_distinct(StudentId))
+
 Fem_VS_Mal
+
+
 
 ##Q5. For which courses the percentage of male/female students is over 70%?
 
@@ -135,21 +153,23 @@ select (S_B_D, DepartmentID, DepartmentName, Stu_Num.x, Stu_Num.y,ratio)
 
 ## Q8. Rate the teachers by their average student's grades (in descending order).
 
-df_merged <- left_join (df_teachers,df_merged, by = 'TeacherId')
+T_by_A <- merge(df_teachers,df_merged, by = 'TeacherId')
 
-teacher_s_average <- df_merged %>%
-                     group_by ( FirstName , LastName) %>% 
+teacher_s_average <- T_by_A %>%
+                     group_by ( FirstName.x, LastName.x) %>% 
                      summarise(avg=mean(degree, na.rm=FALSE))%>% 
                      arrange(desc(avg))
 
 teacher_s_average
 
 ## Q9. Create a dataframe showing the courses, departments they are associated with, the teacher in each course, and the number of students enrolled in the course (for each course, department and teacher show the names).
-course_list <- df_merged %>%
+
+course_list <- T_by_A %>%
                group_by ( CourseId, CourseName, DepartmentName ,FirstName.x, LastName.x ) %>% 
-               summarise(student_count = n_distinct(StudentId)) 
+               summarise(student_count = n_distinct (StudentId)) 
 
 course_list  
+
 
 ## Q10. Create a dataframe showing the students, the number of courses they take, 
 ##the average of the grades per class, and their overall average (for each student show the student name).
@@ -160,26 +180,24 @@ student_courses <- df_merged %>%
 
 student_courses[4] <- sapply(student_courses[4],as.numeric)
 
-student_courses <- S_CL_C_D %>%
+student_courses <- df_merged %>%
                    group_by(StudentId) %>%
                    mutate(avg = mean(degree))
 
-Dep_Avg_degree  <- S_CL_C_D %>%
+Dep_Avg_degree  <- df_merged %>%
                    pivot_wider(names_from = DepartmentName,
                    values_from = degree,
                    values_fn = list( degree = mean))
 
-Dep_Avg_degree  <- select(Dep_Avg_degree, StudentId,  Cou_courses.x)
-
-Courses_Count   <- S_CL_C_D %>%
+Courses_Count   <- df_merged %>%
                    group_by ( StudentId, FirstName,LastName) %>%
                    summarise ( Cou_courses = n_distinct(CourseId))
 
-Stu_Dep_Avg     <- merge ( Courses_Count, Dep_Avg_degree, by = "StudentId", all = FALSE )
+Stu_Dep_Avg     <- inner_join ( Courses_Count, Dep_Avg_degree, by = "StudentId" )
 
-Stu_Dep_Avg_n   <- inner_join ( Stu_Dep_Avg, student_courses, by = "StudentId", all = TRUE )
+Stu_Dep_Avg_n   <- inner_join ( Stu_Dep_Avg, student_courses, by = "StudentId" )
 
-Best_Stu        <- select ( Stu_Dep_Avg_n, StudentId, FirstName, LastName,Cou_courses,DepartmentName,degree, avg)
+Best_Stu        <- select ( Stu_Dep_Avg_n, StudentId, FirstName, LastName, Cou_courses, DepartmentName, degree, avg)
 
 Best_Stu_n      <- Best_Stu %>%
                    pivot_wider(names_from = DepartmentName,
@@ -189,3 +207,4 @@ Best_Stu_n      <- Best_Stu %>%
 Best_Stu_n      <- Best_Stu_n[order(Best_Stu_n$avg, decreasing = TRUE),]
 
 Best_Stu_n
+
